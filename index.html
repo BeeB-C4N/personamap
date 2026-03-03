@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>観光客ペルソナ・シミュレーター</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Helvetica Neue', Arial, sans-serif; overflow: hidden; }
+        #map { width: 100%; height: 100vh; z-index: 1; }
+        
+        .emoji-marker {
+            background: transparent; border: none; font-size: 32px;
+            text-align: center; line-height: 32px; text-shadow: 0px 2px 4px rgba(0,0,0,0.5);
+            transition: all 0.1s linear; cursor: pointer;
+        }
+        .emoji-marker:hover { transform: scale(1.1); }
+
+        /* スクロールバー非表示 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .preview-tooltip { background: rgba(0,0,0,0.7); color: white; border: none; font-weight: bold; border-radius: 4px; padding: 2px 6px; }
+        .preview-tooltip .leaflet-tooltip-tip { border-top-color: rgba(0,0,0,0.7); }
+    </style>
+</head>
+<body class="bg-gray-50 relative">
+
+    <div id="map"></div>
+
+    <!-- ==========================================
+         左側: スクショ用 ペルソナ詳細パネル 
+         ========================================== -->
+    <div id="info-panel" class="hidden absolute top-4 left-4 bottom-24 w-11/12 max-w-[300px] bg-white/95 backdrop-blur-md shadow-2xl rounded-2xl z-[1000] border border-gray-100 flex flex-col transition-all duration-300 transform -translate-x-full opacity-0">
+        <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
+            <h3 class="font-bold text-gray-800 text-lg leading-tight" id="info-name">名前</h3>
+            <button onclick="closeInfoPanel()" class="text-gray-400 hover:text-gray-800 p-1 bg-white rounded-full shadow-sm border border-gray-100 transition"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="p-4 flex-grow overflow-y-auto no-scrollbar flex flex-col gap-4">
+            <div>
+                <span class="block text-[10px] text-gray-500 font-bold mb-1">登録施設</span>
+                <p class="text-sm font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded-xl border border-blue-100" id="info-facility">施設名</p>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-3 text-sm bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <div class="border-b border-gray-200 pb-1"><span class="block text-[10px] text-gray-500 font-bold">居住地</span><span id="info-pref" class="font-medium text-gray-800"></span></div>
+                <div class="border-b border-gray-200 pb-1"><span class="block text-[10px] text-gray-500 font-bold">年齢</span><span id="info-age" class="font-medium text-gray-800"></span></div>
+                <div class="border-b border-gray-200 pb-1"><span class="block text-[10px] text-gray-500 font-bold">同伴者</span><span id="info-companion" class="font-medium text-gray-800"></span></div>
+                <div class="border-b border-gray-200 pb-1"><span class="block text-[10px] text-gray-500 font-bold">宿泊数</span><span id="info-stay" class="font-medium text-gray-800"></span></div>
+                <div class="col-span-2 pt-1"><span class="block text-[10px] text-gray-500 font-bold">年収</span><span id="info-income" class="font-medium text-gray-800"></span></div>
+            </div>
+
+            <div>
+                <span class="block text-[10px] text-gray-500 font-bold mb-1">どんな人？ (自由記述)</span>
+                <p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-xl border border-gray-100 leading-relaxed" id="info-desc"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         下部: 再生コントロールパネル (コンパクト化)
+         ========================================== -->
+    <div class="absolute bottom-4 sm:bottom-6 left-1/2 transform -translate-x-1/2 bg-white/95 backdrop-blur-md px-4 py-3 sm:px-5 sm:py-3 rounded-2xl shadow-xl z-[1000] border border-gray-200 flex items-center gap-3 sm:gap-5 w-11/12 max-w-2xl">
+        <div class="flex gap-1.5 sm:gap-2 shrink-0">
+            <button id="btn-stop" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold shadow-sm transition-colors flex items-center gap-1">
+                <i data-lucide="square" class="w-3 h-3 fill-current"></i> STOP
+            </button>
+            <button id="btn-play" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold shadow-sm transition-colors flex items-center gap-1">
+                <i data-lucide="play" class="w-3 h-3 fill-current"></i> PLAY
+            </button>
+        </div>
+        
+        <div class="flex-grow flex flex-col relative pt-2">
+            <div class="flex justify-between text-[9px] sm:text-[10px] font-bold text-gray-400 absolute top-0 w-full px-1">
+                <span>06:00</span><span class="hidden sm:inline">12:00</span><span class="hidden sm:inline">18:00</span><span>24:00</span>
+            </div>
+            <input type="range" id="time-slider" min="360" max="1440" step="1" value="360" class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 mt-2" disabled>
+        </div>
+        
+        <div class="w-12 sm:w-16 text-right shrink-0">
+            <span id="time-display" class="font-mono text-sm sm:text-lg font-bold text-blue-600">STOP</span>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         右上: ハンバーガーメニュー
+         ========================================== -->
+    <div class="absolute top-4 right-4 z-[1000]">
+        <!-- メニューボタン -->
+        <button id="btn-menu-toggle" class="bg-white/95 backdrop-blur-md shadow-lg p-3 rounded-2xl border border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-blue-600 transition-all flex items-center justify-center">
+            <i data-lucide="menu" class="w-6 h-6"></i>
+        </button>
+
+        <!-- ドロップダウンメニュー -->
+        <div id="dropdown-menu" class="hidden absolute top-full right-0 mt-2 w-64 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-100 flex flex-col p-2 gap-1.5 origin-top-right transition-all">
+            <button onclick="loadSpreadsheetData()" class="w-full text-left bg-transparent hover:bg-gray-50 text-gray-700 hover:text-gray-900 px-4 py-3 rounded-xl text-sm font-bold transition flex items-center gap-3">
+                <div class="bg-gray-100 p-1.5 rounded-lg text-gray-600"><i data-lucide="refresh-cw" class="w-4 h-4"></i></div>
+                更新
+            </button>
+            <button onclick="openForm()" class="w-full text-left bg-transparent hover:bg-green-50 text-gray-700 hover:text-green-700 px-4 py-3 rounded-xl text-sm font-bold transition flex items-center gap-3">
+                <div class="bg-green-100 p-1.5 rounded-lg text-green-600"><i data-lucide="user-plus" class="w-4 h-4"></i></div>
+                ペルソナ登録
+            </button>
+            <button id="btn-tool-open" class="w-full text-left bg-transparent hover:bg-blue-50 text-gray-700 hover:text-blue-700 px-4 py-3 rounded-xl text-sm font-bold transition flex items-center gap-3">
+                <div class="bg-blue-100 p-1.5 rounded-lg text-blue-600"><i data-lucide="map-pin" class="w-4 h-4"></i></div>
+                移動推移JSON作成
+            </button>
+            <div class="h-px bg-gray-100 my-1"></div>
+            <button onclick="shareCurrentView()" class="w-full text-left bg-transparent hover:bg-purple-50 text-gray-700 hover:text-purple-700 px-4 py-3 rounded-xl text-sm font-bold transition flex items-center gap-3">
+                <div class="bg-purple-100 p-1.5 rounded-lg text-purple-600"><i data-lucide="share-2" class="w-4 h-4"></i></div>
+                現在の画面を共有する
+            </button>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         右側: 経路JSON作成ツール (レスポンシブ対応)
+         ========================================== -->
+    <div id="tool-panel" class="fixed top-0 right-0 w-full sm:w-80 h-full bg-white shadow-2xl z-[2000] transform translate-x-full transition-transform duration-300 flex flex-col border-l border-gray-200">
+        <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+            <h3 class="font-bold text-gray-800 text-sm flex items-center gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-blue-600"></i> 移動JSON 作成</h3>
+            <button id="btn-tool-close" class="text-gray-400 hover:text-gray-800 p-1 bg-white rounded-full shadow-sm border border-gray-100 transition"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="p-4 overflow-y-auto flex-grow bg-gray-50">
+            <p class="text-[11px] text-gray-600 mb-4 leading-relaxed">地図上をクリックして相対時間ごとの位置をピン留めしてください。<span class="text-red-500 font-bold">※「基点」は必須。</span></p>
+            
+            <div class="mb-4 bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                <label class="block text-xs font-bold text-gray-700 mb-1.5">このペルソナの基点時刻</label>
+                <div class="flex gap-2">
+                    <input type="time" id="tool-base-time" value="12:00" class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm flex-grow outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50">
+                    <button id="btn-tool-preview" class="bg-green-500 hover:bg-green-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1 shadow-sm">
+                        <i data-lucide="play" class="w-3 h-3 fill-current"></i> プレビュー
+                    </button>
+                </div>
+            </div>
+
+            <div id="offset-buttons" class="flex flex-col gap-2 mb-6">
+                <!-- JSでボタン生成 -->
+            </div>
+
+            <div class="bg-gray-800 rounded-xl p-3 relative shadow-inner">
+                <span class="absolute top-2 right-2 text-[9px] text-gray-400 border border-gray-600 px-1.5 py-0.5 rounded bg-gray-900">JSON出力</span>
+                <textarea id="json-output" class="w-full bg-transparent text-green-400 font-mono text-[10px] h-28 outline-none resize-none" readonly></textarea>
+            </div>
+        </div>
+        <div class="p-4 bg-white border-t border-gray-100">
+            <button onclick="copyJson()" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md hover:bg-blue-700 transition flex justify-center items-center gap-2">
+                <i data-lucide="clipboard-copy" class="w-4 h-4"></i> JSONをコピー
+            </button>
+        </div>
+    </div>
+
+    <!-- ローディングオーバーレイ -->
+    <div id="loading-overlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-[3000] flex flex-col items-center justify-center hidden">
+        <i data-lucide="loader-2" class="w-10 h-10 text-blue-600 animate-spin mb-4"></i>
+        <p class="text-gray-700 font-bold">スプレッドシートからデータを読み込み中...</p>
+    </div>
+
+    <script>
+        // Lucideアイコンの初期化
+        lucide.createIcons();
+
+        // --- UI Interactions ---
+        // メニュー開閉
+        const menuToggle = document.getElementById('btn-menu-toggle');
+        const dropdownMenu = document.getElementById('dropdown-menu');
+        
+        menuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dropdownMenu.classList.toggle('hidden');
+        });
+
+        // 画面外クリックでメニューを閉じる
+        document.addEventListener('click', (e) => {
+            if (!dropdownMenu.contains(e.target) && !menuToggle.contains(e.target)) {
+                dropdownMenu.classList.add('hidden');
+            }
+        });
+
+        // --- 1. Map Initialization ---
+        // URLパラメータから初期位置を取得（共有URL対応）
+        const urlParams = new URLSearchParams(window.location.search);
+        // 今回のデータは石川県加賀・福井周辺のため、デフォルトを少し南に
+        const initialLat = parseFloat(urlParams.get('lat')) || 36.331;
+        const initialLng = parseFloat(urlParams.get('lng')) || 136.447;
+        const initialZoom = parseInt(urlParams.get('z')) || 12;
+
+        const map = L.map('map', { zoomControl: false }).setView([initialLat, initialLng], initialZoom);
+        L.control.zoom({ position: 'topleft' }).addTo(map);
+        
+        // OSM標準のマップタイル
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // --- 2. Data Management (Live from Spreadsheet) ---
+        let personas = [];
+        let personaMarkers = {};
+        
+        function parseCSV(csvText) {
+            const rows = [];
+            let row = [], inQuotes = false, currentVal = '';
+            for (let i = 0; i < csvText.length; i++) {
+                let char = csvText[i];
+                if (inQuotes) {
+                    if (char === '"') {
+                        if (i + 1 < csvText.length && csvText[i + 1] === '"') { currentVal += '"'; i++; } 
+                        else { inQuotes = false; }
+                    } else { currentVal += char; }
+                } else {
+                    if (char === '"') { inQuotes = true; } 
+                    else if (char === ',') { row.push(currentVal); currentVal = ''; } 
+                    else if (char === '\n' || char === '\r') {
+                        if (char === '\r' && csvText[i+1] === '\n') i++;
+                        row.push(currentVal); rows.push(row);
+                        row = []; currentVal = '';
+                    } else { currentVal += char; }
+                }
+            }
+            if (currentVal || csvText[csvText.length-1] === ',') row.push(currentVal);
+            if (row.length > 0) rows.push(row);
+            return rows;
+        }
+
+        window.loadSpreadsheetData = function() {
+            dropdownMenu.classList.add('hidden'); // メニュー閉じる
+            const loading = document.getElementById('loading-overlay');
+            loading.classList.remove('hidden');
+
+            // ユーザー指定のスプレッドシートCSV出力URL
+            const sheetId = '1ZIjim9d-T3f01El_0YUor3_SYR8NEuuBChChL2B2Jg0';
+            const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+
+            fetch(csvUrl)
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.text();
+                })
+                .then(csvText => {
+                    const parsed = parseCSV(csvText);
+                    
+                    // 既存のマーカーを全て削除
+                    Object.values(personaMarkers).forEach(m => map.removeLayer(m));
+                    personaMarkers = {};
+                    personas = [];
+                    
+                    // ヘッダー(0行目)をスキップ
+                    for (let i = 1; i < parsed.length; i++) {
+                        const row = parsed[i];
+                        if(row.length < 11) continue;
+                        
+                        try {
+                            // カラム構成: 
+                            // 0:タイムスタンプ, 1:基点施設, 2:名前, 3:同伴者, 4:アイコン, 5:年収, 6:宿泊数, 7:自由記述, 8:JSON, 9:年齢, 10:居住地
+                            
+                            // スプレッドシートに「基点時刻」の列が無いため、一旦シミュレーション用に全員12:00とする
+                            const baseTimeStr = "12:00";
+                            const [h, m] = baseTimeStr.split(':').map(Number);
+                            const baseMin = h * 60 + m;
+
+                            const jsonStr = row[8].replace(/""/g, '"');
+                            const path = JSON.parse(jsonStr).sort((a,b) => a.offset - b.offset);
+                            
+                            path.forEach(pt => { pt.absMin = baseMin + (pt.offset * 60); });
+                            
+                            personas.push({
+                                id: 'p_' + i, 
+                                facility: row[1], 
+                                name: row[2], 
+                                companion: row[3], 
+                                emoji: row[4], 
+                                income: row[5], 
+                                stay: row[6], 
+                                desc: row[7],
+                                age: row[9],
+                                pref: row[10],
+                                baseTime: baseTimeStr, 
+                                path: path
+                            });
+                        } catch(e) { console.error("Data Parse Error on row " + i, e); }
+                    }
+                    
+                    // 読み込み完了後の処理
+                    loading.classList.add('hidden');
+                    stopSimulation(); 
+                    
+                    // URLパラメータで座標指定されていない場合のみ、最初のペルソナの位置に自動ズーム
+                    if (!urlParams.has('lat') && personas.length > 0 && personas[0].path.length > 0) {
+                        const firstBase = personas[0].path.find(pt => pt.offset === 0) || personas[0].path[0];
+                        map.setView([firstBase.lat, firstBase.lng], 11);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching spreadsheet:', error);
+                    loading.classList.add('hidden');
+                    alert("スプレッドシートの取得に失敗しました。\nURLの共有設定が「リンクを知っている全員が閲覧可」になっているか確認してください。");
+                });
+        }
+
+        // --- 3. Simulation & Rendering ---
+        let currentSimMin = 360; 
+        let simMode = 'STOP'; 
+        let animationFrameId;
+        const slider = document.getElementById('time-slider');
+        const timeDisplay = document.getElementById('time-display');
+
+        function formatMinToTime(min) {
+            const h = Math.floor(min / 60).toString().padStart(2, '0');
+            const m = Math.floor(min % 60).toString().padStart(2, '0');
+            return `${h}:${m}`;
+        }
+
+        function calculateAbsolutePosition(path, targetMin) {
+            if (!path || path.length === 0) return null;
+            if (path.length === 1) return path[0];
+
+            if (targetMin <= path[0].absMin) return path[0];
+            if (targetMin >= path[path.length - 1].absMin) return path[path.length - 1];
+
+            for (let i = 0; i < path.length - 1; i++) {
+                const p1 = path[i];
+                const p2 = path[i+1];
+                if (targetMin >= p1.absMin && targetMin <= p2.absMin) {
+                    const ratio = (targetMin - p1.absMin) / (p2.absMin - p1.absMin);
+                    return {
+                        lat: p1.lat + (p2.lat - p1.lat) * ratio,
+                        lng: p1.lng + (p2.lng - p1.lng) * ratio
+                    };
+                }
+            }
+            return null;
+        }
+
+        function updateMap() {
+            if (simMode === 'STOP') {
+                timeDisplay.innerText = "STOP";
+                slider.disabled = true;
+                
+                personas.forEach(p => {
+                    let basePoint = p.path.find(pt => pt.offset === 0) || p.path[0];
+                    if(basePoint) updateMarkerPosition(p, basePoint);
+                });
+            } else {
+                timeDisplay.innerText = formatMinToTime(currentSimMin);
+                slider.disabled = false;
+                slider.value = currentSimMin;
+
+                personas.forEach(p => {
+                    let pos = calculateAbsolutePosition(p.path, currentSimMin);
+                    if(pos) updateMarkerPosition(p, pos);
+                });
+            }
+        }
+
+        function updateMarkerPosition(persona, pos) {
+            if (!personaMarkers[persona.id]) {
+                const icon = L.divIcon({ html: persona.emoji, className: 'emoji-marker', iconSize: [40, 40], iconAnchor: [20, 20] });
+                const marker = L.marker([pos.lat, pos.lng], { icon: icon, zIndexOffset: 100 }).addTo(map);
+                marker.on('click', () => showInfoPanel(persona));
+                personaMarkers[persona.id] = marker;
+            } else {
+                personaMarkers[persona.id].setLatLng([pos.lat, pos.lng]);
+            }
+        }
+
+        function playLoop() {
+            if (simMode !== 'PLAY') return;
+            currentSimMin += 2; 
+            if (currentSimMin > 1440) { stopSimulation(); return; }
+            updateMap();
+            animationFrameId = requestAnimationFrame(playLoop);
+        }
+
+        function startSimulation() {
+            simMode = 'PLAY';
+            currentSimMin = 360; 
+            document.getElementById('btn-play').classList.replace('bg-blue-600', 'bg-blue-300');
+            document.getElementById('btn-stop').classList.replace('bg-red-300', 'bg-red-500');
+            cancelAnimationFrame(animationFrameId);
+            playLoop();
+        }
+
+        function stopSimulation() {
+            simMode = 'STOP';
+            document.getElementById('btn-play').classList.replace('bg-blue-300', 'bg-blue-600');
+            document.getElementById('btn-stop').classList.replace('bg-red-500', 'bg-red-300');
+            cancelAnimationFrame(animationFrameId);
+            updateMap();
+        }
+
+        document.getElementById('btn-play').addEventListener('click', startSimulation);
+        document.getElementById('btn-stop').addEventListener('click', stopSimulation);
+        
+        slider.addEventListener('input', (e) => {
+            if(simMode === 'PLAY') {
+                currentSimMin = parseInt(e.target.value);
+                updateMap();
+            }
+        });
+
+        // --- 4. UI Interactivity (Left Panel) ---
+        const infoPanel = document.getElementById('info-panel');
+
+        function showInfoPanel(persona) {
+            document.getElementById('info-name').innerText = persona.emoji + ' ' + persona.name;
+            document.getElementById('info-facility').innerText = persona.facility;
+            document.getElementById('info-pref').innerText = persona.pref;
+            document.getElementById('info-age').innerText = persona.age;
+            document.getElementById('info-companion').innerText = persona.companion;
+            document.getElementById('info-stay').innerText = persona.stay;
+            document.getElementById('info-income').innerText = persona.income;
+            document.getElementById('info-desc').innerText = persona.desc;
+
+            infoPanel.classList.remove('hidden');
+            setTimeout(() => infoPanel.classList.remove('-translate-x-full', 'opacity-0'), 10);
+        }
+
+        window.closeInfoPanel = function() {
+            infoPanel.classList.add('-translate-x-full', 'opacity-0');
+            setTimeout(() => infoPanel.classList.add('hidden'), 300);
+        }
+
+        // --- 5. Path Creation Tool & Preview (Right Panel) ---
+        const offsets = [-3, -2, -1, 0, 1, 2, 3];
+        const offsetLabels = { "-3":"3時間前", "-2":"2時間前", "-1":"1時間前", "0":"★基点 (必須)", "1":"1時間後", "2":"2時間後", "3":"3時間後" };
+        let createdPathData = {};
+        let activeToolOffset = null;
+        let toolMarkers = {};
+        let toolPolyline = L.polyline([], {color: '#2563eb', weight: 3, dashArray: '6,6'}).addTo(map);
+
+        const offsetBtnsContainer = document.getElementById('offset-buttons');
+        offsets.forEach(off => {
+            const btn = document.createElement('button');
+            const isBase = off === 0;
+            btn.className = `flex justify-between items-center w-full px-4 py-2.5 rounded-xl border font-bold text-sm transition-colors shadow-sm ${isBase ? 'bg-yellow-50 border-yellow-300 text-yellow-800' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`;
+            btn.innerHTML = `<span>${offsetLabels[off]}</span> <span id="tool-coord-${off}" class="text-[10px] font-mono font-normal text-gray-400">未設定</span>`;
+            btn.onclick = () => activateToolPicking(off, btn);
+            offsetBtnsContainer.appendChild(btn);
+        });
+
+        function activateToolPicking(offset, btnElement) {
+            if(isToolPreviewing) return; 
+            activeToolOffset = offset;
+            Array.from(offsetBtnsContainer.children).forEach(b => b.classList.remove('ring-2', 'ring-blue-500', 'border-transparent'));
+            btnElement.classList.add('ring-2', 'ring-blue-500', 'border-transparent');
+            map.getContainer().style.cursor = 'crosshair';
+        }
+
+        map.on('click', (e) => {
+            if (activeToolOffset === null || isToolPreviewing) return;
+            const lat = parseFloat(e.latlng.lat.toFixed(5));
+            const lng = parseFloat(e.latlng.lng.toFixed(5));
+            createdPathData[activeToolOffset] = { offset: activeToolOffset, lat: lat, lng: lng };
+            
+            document.getElementById(`tool-coord-${activeToolOffset}`).innerHTML = `<span class="text-blue-600 font-bold">${lat}, ${lng}</span>`;
+            
+            if(toolMarkers[activeToolOffset]) map.removeLayer(toolMarkers[activeToolOffset]);
+            const m = L.circleMarker([lat, lng], { 
+                radius: activeToolOffset===0 ? 8 : 6, 
+                color: activeToolOffset===0 ? '#ef4444' : '#2563eb', 
+                fillColor: '#ffffff',
+                fillOpacity: 1,
+                weight: 3
+            }).addTo(map);
+            m.bindTooltip(offsetLabels[activeToolOffset], {permanent: true, direction: 'top', className: 'text-[10px] font-bold py-0.5 px-1 shadow-md', offset: [0,-5]}).openTooltip();
+            toolMarkers[activeToolOffset] = m;
+
+            updateToolPolylineAndJSON();
+        });
+
+        function updateToolPolylineAndJSON() {
+            const pathArr = offsets.filter(o => createdPathData[o]).map(o => createdPathData[o]);
+            toolPolyline.setLatLngs(pathArr.map(p => [p.lat, p.lng]));
+            document.getElementById('json-output').value = JSON.stringify(pathArr);
+        }
+
+        window.copyJson = function() {
+            if(!createdPathData[0]) { alert("エラー: 「基点」の設定は必須です。"); return; }
+            const jsonOutput = document.getElementById('json-output');
+            jsonOutput.select(); jsonOutput.setSelectionRange(0, 99999);
+            try { document.execCommand('copy'); alert("JSONをコピーしました！"); } 
+            catch (err) { alert("コピーに失敗しました。手動でコピーしてください。"); }
+        }
+
+        // --- ツール内プレビュー ---
+        let isToolPreviewing = false;
+        let toolPreviewMarker = null;
+        let toolPreviewInterval = null;
+        let previewCurrentOffset = 0;
+
+        document.getElementById('btn-tool-preview').addEventListener('click', () => {
+            const points = offsets.filter(o => createdPathData[o]).map(o => createdPathData[o]);
+            if (points.length < 2) { alert("プレビューするには2つ以上の地点が必要です。"); return; }
+
+            const btn = document.getElementById('btn-tool-preview');
+            
+            if (isToolPreviewing) {
+                isToolPreviewing = false;
+                clearInterval(toolPreviewInterval);
+                if(toolPreviewMarker) map.removeLayer(toolPreviewMarker);
+                btn.innerHTML = '<i data-lucide="play" class="w-3 h-3 fill-current"></i> プレビュー';
+                btn.classList.replace('bg-red-500', 'bg-green-500');
+                btn.classList.replace('hover:bg-red-600', 'hover:bg-green-600');
+                lucide.createIcons();
+            } else {
+                isToolPreviewing = true;
+                btn.innerHTML = '<i data-lucide="square" class="w-3 h-3 fill-current"></i> 停止';
+                btn.classList.replace('bg-green-500', 'bg-red-500');
+                btn.classList.replace('hover:bg-green-600', 'hover:bg-red-600');
+                lucide.createIcons();
+                
+                previewCurrentOffset = points[0].offset;
+                const baseTimeStr = document.getElementById('tool-base-time').value || "12:00";
+                const [h, m] = baseTimeStr.split(':').map(Number);
+                const baseMin = h * 60 + m;
+
+                const icon = L.divIcon({ html: '👀', className: 'emoji-marker', iconSize: [40, 40], iconAnchor: [20, 20] });
+                toolPreviewMarker = L.marker([points[0].lat, points[0].lng], { icon: icon, zIndexOffset: 1000 }).addTo(map);
+
+                toolPreviewInterval = setInterval(() => {
+                    previewCurrentOffset += 0.05; 
+                    if(previewCurrentOffset > points[points.length-1].offset) previewCurrentOffset = points[0].offset;
+
+                    let pos = null;
+                    for (let i = 0; i < points.length - 1; i++) {
+                        const p1 = points[i], p2 = points[i+1];
+                        if (previewCurrentOffset >= p1.offset && previewCurrentOffset <= p2.offset) {
+                            const ratio = (previewCurrentOffset - p1.offset) / (p2.offset - p1.offset);
+                            pos = { lat: p1.lat + (p2.lat - p1.lat) * ratio, lng: p1.lng + (p2.lng - p1.lng) * ratio };
+                            break;
+                        }
+                    }
+
+                    if (pos) {
+                        toolPreviewMarker.setLatLng([pos.lat, pos.lng]);
+                        const absM = baseMin + (previewCurrentOffset * 60);
+                        const hhStr = Math.floor(absM / 60).toString().padStart(2,'0');
+                        const mmStr = Math.floor(absM % 60).toString().padStart(2,'0');
+                        toolPreviewMarker.bindTooltip(`${hhStr}:${mmStr}`, {permanent: true, direction: 'top', className: 'preview-tooltip', offset: [0, -20]}).openTooltip();
+                    }
+                }, 50);
+            }
+        });
+
+        // ツールパネル開閉
+        document.getElementById('btn-tool-open').addEventListener('click', () => {
+            dropdownMenu.classList.add('hidden'); // メニュー閉じる
+            document.getElementById('tool-panel').classList.remove('translate-x-full');
+            stopSimulation();
+            Object.values(personaMarkers).forEach(m => map.removeLayer(m));
+        });
+        document.getElementById('btn-tool-close').addEventListener('click', () => {
+            if(isToolPreviewing) document.getElementById('btn-tool-preview').click(); 
+            document.getElementById('tool-panel').classList.add('translate-x-full');
+            activeToolOffset = null;
+            map.getContainer().style.cursor = '';
+            Object.values(toolMarkers).forEach(m => map.removeLayer(m));
+            toolPolyline.setLatLngs([]);
+            updateMap(); 
+        });
+
+        window.openForm = function() {
+            dropdownMenu.classList.add('hidden'); // メニュー閉じる
+            window.open('https://forms.gle/U3phaFWhsRMi9ebH7', '_blank');
+        }
+
+        // --- 画面共有機能 ---
+        window.shareCurrentView = function() {
+            dropdownMenu.classList.add('hidden'); // メニュー閉じる
+            
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            
+            const url = new URL(window.location.href);
+            url.searchParams.set('lat', center.lat.toFixed(5));
+            url.searchParams.set('lng', center.lng.toFixed(5));
+            url.searchParams.set('z', zoom);
+            
+            const shareUrl = url.toString();
+
+            const textArea = document.createElement("textarea");
+            textArea.value = shareUrl;
+            document.body.appendChild(textArea);
+            textArea.select();
+            textArea.setSelectionRange(0, 99999);
+            try { 
+                document.execCommand('copy'); 
+                alert("共有用のURLをクリップボードにコピーしました！\n\n" + shareUrl); 
+            } 
+            catch (err) { 
+                alert("コピーに失敗しました。以下のURLを手動でコピーしてください。\n\n" + shareUrl); 
+            }
+            document.body.removeChild(textArea);
+        }
+
+        // --- 初期化 ---
+        // ページ読み込み時に自動で本番データをフェッチする
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSpreadsheetData();
+        });
+
+    </script>
+</body>
+</html>
